@@ -6,332 +6,343 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime
 import time
-from dateutil.parser import parse
+from dateutil.parser import parse # Used for parsing datetime strings from tweet elements
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 class XReplyDeleter:
     def __init__(self, root):
         self.root = root
-        self.root.title("X Reply Deleter")
-        self.root.geometry("400x300")
+        self.root.title("X Item Deleter") # Renamed for broader scope
+        self.root.geometry("400x320") # Adjusted height slightly for better layout
         
-        # GUI Elements
+        # --- GUI Elements ---
         tk.Label(root, text="X Username:").pack(pady=5)
-        self.username_entry = tk.Entry(root)
+        self.username_entry = tk.Entry(root, width=30)
         self.username_entry.pack(pady=5)
-        self.username_entry.insert(0, "Abouu_sz")  # Set default username
+        # self.username_entry.insert(0, "your_username") # Example placeholder, removed default
         
         tk.Label(root, text="Start Date (YYYY-MM-DD):").pack(pady=5)
-        self.start_date = tk.Entry(root)
-        self.start_date.pack(pady=5)
-        self.start_date.insert(0, "2026-01-01")  # Set default start date
+        self.start_date_entry = tk.Entry(root, width=30) # Renamed for clarity
+        self.start_date_entry.pack(pady=5)
         
         tk.Label(root, text="End Date (YYYY-MM-DD):").pack(pady=5)
-        self.end_date = tk.Entry(root)
-        self.end_date.pack(pady=5)
-        self.end_date.insert(0, "2026-06-20")  # Set default end date
+        self.end_date_entry = tk.Entry(root, width=30) # Renamed for clarity
+        self.end_date_entry.pack(pady=5)
 
         tk.Label(root, text="Item to Delete:").pack(pady=5)
         self.item_type_var = tk.StringVar()
-        self.item_type_combobox = ttk.Combobox(root, textvariable=self.item_type_var)
+        self.item_type_combobox = ttk.Combobox(root, textvariable=self.item_type_var, width=27)
         self.item_type_combobox['values'] = ("Replies", "Posts", "Likes", "Quotes")
-        self.item_type_combobox.current(0)  # Default to Replies
+        self.item_type_combobox.current(0)  # Default to "Replies"
         self.item_type_combobox.pack(pady=5)
         
-        self.delete_button = tk.Button(root, text="Start Deletion", command=self.start_deletion)
+        self.delete_button = tk.Button(root, text="Start Deletion", command=self.start_deletion_process)
         self.delete_button.pack(pady=10)
         
-        self.status = tk.Label(root, text="")
-        self.status.pack(pady=5)
+        self.status_label = tk.Label(root, text="Status: Idle") # Renamed for clarity
+        self.status_label.pack(pady=5)
         
-        self.progress = ttk.Progressbar(root, length=200, mode='indeterminate')
-        self.progress.pack(pady=5)
+        self.progress_bar = ttk.Progressbar(root, length=300, mode='indeterminate') # Renamed
+        self.progress_bar.pack(pady=5)
 
-    def start_deletion(self):
+    def validate_dates(self, start_date_str, end_date_str):
+        """
+        Validates the start and end date strings against "YYYY-MM-DD" format
+        and ensures start_date is not after end_date.
+        Returns (parsed_start_date, parsed_end_date, error_message_or_none).
+        """
+        if not start_date_str or not end_date_str:
+            return None, None, "Please fill all date fields!"
+
+        try:
+            # Use datetime.strptime for strict "YYYY-MM-DD" format validation.
+            start = datetime.strptime(start_date_str, "%Y-%m-%d")
+            end = datetime.strptime(end_date_str, "%Y-%m-%d")
+
+            # strptime produces timezone-naive datetime objects by default.
+            if start > end:
+                return None, None, "Start date must be before or the same as end date."
+            return start, end, None
+        except ValueError: # Raised by strptime if format is wrong.
+            return None, None, "Invalid date format! Please use YYYY-MM-DD."
+
+    def start_deletion_process(self): # Renamed for clarity
+        """Handles pre-deletion checks (input validation, password prompt) and initiates deletion."""
+        from tkinter.simpledialog import askstring # Local import for password dialog
+
         username = self.username_entry.get()
-        start_date_str = self.start_date.get()
-        end_date_str = self.end_date.get()
+        start_date_str = self.start_date_entry.get()
+        end_date_str = self.end_date_entry.get()
         item_type = self.item_type_var.get()
         
         if not username or not start_date_str or not end_date_str:
-            messagebox.showerror("Error", "Please fill all fields!")
+            messagebox.showerror("Input Error", "Please fill all required fields (Username, Start Date, End Date).")
+            return
+
+        start_date_obj, end_date_obj, error_msg = self.validate_dates(start_date_str, end_date_str)
+        if error_msg:
+            messagebox.showerror("Date Validation Error", error_msg)
+            return
+
+        # Securely get password via dialog
+        password = askstring("X.com Password", f"Enter X.com password for user '{username}':", show='*')
+        if not password: # User cancelled or entered empty password
+            messagebox.showinfo("Cancelled", "Deletion process cancelled by user (password not provided).")
             return
         
-        try:
-            start = parse(start_date_str)
-            end = parse(end_date_str)
-            if start > end:
-                messagebox.showerror("Error", "Start date must be before end date!")
-                return
-        except ValueError:
-            messagebox.showerror("Error", "Invalid date format! Use YYYY-MM-DD")
-            return
-        
+        # Update GUI for processing state
         self.delete_button.config(state='disabled')
-        self.progress.start()
-        self.status.config(text=f"Starting deletion of {item_type.lower()}...")
-        self.root.update()
+        self.progress_bar.start()
+        self.status_label.config(text=f"Starting deletion of {item_type.lower()}...")
+        self.root.update_idletasks() # Ensure GUI updates immediately
         
-        # Pass string dates for URL construction if needed, and parsed dates for comparison
-        self.delete_items(username, start, end, item_type, start_date_str, end_date_str)
+        # Initiate the core deletion logic
+        # Pass original date strings for URL construction (especially for Quotes search)
+        self.perform_item_deletion(username, password, start_date_obj, end_date_obj, item_type, start_date_str, end_date_str)
         
-    def login_to_x(self, driver, username, password):
-        # Wait for login page to load
-        time.sleep(2)
+    def _login_to_x(self, driver, username, password): # Prefixed with _ as it's an internal helper
+        """Handles the automated login process on X.com."""
         try:
-            # Find username input (X.com may use 'text' or 'email' for username field)
-            user_input = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.NAME, 'text'))
+            # Wait for username input field
+            user_input = WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.NAME, 'text')),
+                message="Username input field not found on login page."
             )
             user_input.clear()
             user_input.send_keys(username)
-            # Try multiple selectors for the Next button
+
+            # Click "Next" button (with fallbacks for robustness)
             next_btn = None
             try:
+                next_btn_xpath = "//span[contains(text(),'Next')]/ancestor::div[@role='button'] | //span[contains(text(),'التالي')]/ancestor::div[@role='button']"
                 next_btn = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, "//span[text()='Next']/ancestor::div[@role='button']"))
+                    EC.element_to_be_clickable((By.XPATH, next_btn_xpath)),
+                    message="Primary 'Next' button selector failed."
                 )
-            except:
-                try:
-                    # Try Arabic or other localizations
-                    next_btn = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.XPATH, "//span[text()='التالي']/ancestor::div[@role='button']"))
-                    )
-                except:
-                    # Fallback: any visible button with role=button
-                    btns = driver.find_elements(By.XPATH, "//div[@role='button']")
-                    for btn in btns:
-                        if btn.is_displayed() and btn.is_enabled():
-                            next_btn = btn
-                            break
+            except Exception: # Broader exception for timeout or other issues
+                btns = driver.find_elements(By.XPATH, "//div[@role='button']")
+                for btn in btns:
+                    if btn.is_displayed() and btn.is_enabled():
+                        btn_text_lower = btn.text.lower()
+                        if "next" in btn_text_lower or "التالي" in btn_text_lower or len(btns) == 1:
+                            next_btn = btn; break
             if not next_btn:
-                raise Exception("Next button not found on login page.")
-            next_btn.click()
-            # Wait for password input to appear after clicking Next
+                clickable_buttons = [b for b in driver.find_elements(By.XPATH, "//div[@role='button']") if b.is_displayed() and b.is_enabled()]
+                if len(clickable_buttons) == 1: next_btn = clickable_buttons[0]
+                elif len(clickable_buttons) > 1:
+                    for cb in clickable_buttons:
+                        spans = cb.find_elements(By.TAG_NAME, "span")
+                        if spans and spans[0].is_displayed() and ("next" in spans[0].text.lower() or "التالي" in spans[0].text.lower()):
+                            next_btn = cb; break
+                if not next_btn: raise Exception("Next button not found or ambiguous on login page after multiple fallbacks.")
+
+            driver.execute_script("arguments[0].click();", next_btn)
+
+            # Wait for password input field
             pwd_input = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.NAME, 'password'))
+                EC.presence_of_element_located((By.NAME, 'password')),
+                message="Password input field not found after clicking Next."
             )
             pwd_input.clear()
             pwd_input.send_keys(password)
-            login_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[text()='Log in']/ancestor::div[@role='button']"))
-            )
-            login_btn.click()
-            time.sleep(5)  # Wait for login to complete
-        except Exception as e:
-            print(f"Automated login failed: {e}")
-            messagebox.showerror("Login Error", f"Automated login failed: {e}")
 
-    def delete_items(self, username, start_date, end_date, item_type, start_date_str=None, end_date_str=None):
-        driver = None  # Initialize driver to ensure it's available in finally block
+            # Click "Log in" button
+            login_btn_xpath = "//span[contains(text(),'Log in')]/ancestor::div[@role='button'] | //span[contains(text(),'تسجيل الدخول')]/ancestor::div[@role='button'] | //div[@data-testid='LoginForm_Login_Button']"
+            login_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, login_btn_xpath)),
+                message="'Log in' button not found."
+            )
+            driver.execute_script("arguments[0].click();", login_btn)
+            # Successful login is confirmed in the calling method.
+        except Exception as e:
+            error_detail = f"Automated login failed: {str(e)}"
+            print(error_detail)
+            messagebox.showerror("Login Error", error_detail)
+            raise # Re-raise to be caught by the main deletion logic
+
+    def perform_item_deletion(self, username, password, start_date_obj, end_date_obj, item_type, start_date_str, end_date_str): # Renamed
+        """Core logic for Selenium browser automation to delete items."""
+        driver = None
+        items_deleted_count = 0
+        items_failed_count = 0
         try:
-            # Setup Selenium
+            # --- WebDriver Setup ---
             options = webdriver.ChromeOptions()
-            # options.add_argument("--headless")  # Comment out for debugging, enable for release
+            # options.add_argument("--headless") # Enable for no GUI browser; may affect X.com compatibility
+            # options.add_argument("--disable-gpu")
+            # options.add_argument("--no-sandbox")
+            # options.add_argument("--window-size=1920,1080")
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
             
-            # Always open login page first
-            driver.get("https://x.com/login")
-            time.sleep(3)
-            # Perform login
-            self.login_to_x(driver, "Abouu_sz", "Ww+1+1Ww")
-            time.sleep(5)
-            # After login, navigate to the appropriate page
-            base_url = "https://x.com"
-            if item_type == "Replies":
-                driver.get(f"{base_url}/{username}/with_replies")
-            elif item_type == "Posts":
-                driver.get(f"{base_url}/{username}")
-            elif item_type == "Likes":
-                driver.get(f"{base_url}/{username}/likes")
-            elif item_type == "Quotes":
-                s_date = start_date.strftime('%Y-%m-%d')
-                e_date = end_date.strftime('%Y-%m-%d')
-                search_query = f"(from%3A{username})%20filter%3Aquote%20until%3A{e_date}%20since%3A{s_date}"
-                driver.get(f"{base_url}/search?q={search_query}&src=typed_query&f=live")
-            time.sleep(5)
+            self.status_label.config(text="Attempting to log in to X.com...")
+            self.root.update_idletasks()
 
+            # --- Login ---
+            driver.get("https://x.com/login")
+            WebDriverWait(driver, 20).until( # Wait for login page readiness
+                lambda d: "login" in d.title.lower() or d.find_elements(By.NAME, 'text'),
+                message="Failed to load X.com login page."
+            )
+            self._login_to_x(driver, username, password) # Call internal login helper
+
+            # --- Login Confirmation ---
+            try: # Check for a known element post-login (e.g., Home button)
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, "//a[@aria-label='Home']|//a[@data-testid='AppTabBar_Home_Link']")),
+                    message="Login confirmation element (Home link) not found."
+                )
+                self.status_label.config(text="Login successful. Navigating...")
+                self.root.update_idletasks()
+            except Exception as login_confirm_ex:
+                current_url = driver.current_url
+                error_detail = f"Original error: {login_confirm_ex}. Current URL: {current_url}"
+                if "login" in current_url or "error" in current_url or "i/flow/login" in current_url:
+                    messagebox.showerror("Login Failed", f"Could not confirm login. URL suggests still on login/error page. {error_detail}")
+                else:
+                    messagebox.showwarning("Login Status Uncertain", f"Login status uncertain. {error_detail}")
+                # Consider halting if login is critical: if driver: driver.quit(); return
+                self.status_label.config(text="Login confirmation failed or uncertain.")
+                self.root.update_idletasks()
+                # For robustness, we might allow proceeding, but it's risky. Here, we'll stop.
+                if driver: driver.quit()
+                self.progress_bar.stop()
+                self.delete_button.config(state='normal')
+                return
+
+
+            # --- Navigation to Target Page ---
+            base_url = "https://x.com"
+            target_url = ""
+            self.status_label.config(text=f"Navigating to {item_type} section...")
+            self.root.update_idletasks()
+
+            if item_type == "Replies": target_url = f"{base_url}/{username}/with_replies"
+            elif item_type == "Posts": target_url = f"{base_url}/{username}"
+            elif item_type == "Likes": target_url = f"{base_url}/{username}/likes"
+            elif item_type == "Quotes":
+                if not start_date_str or not end_date_str:
+                    raise ValueError("Start/End date strings required for Quotes search URL.")
+                # Use original string dates for X.com search query format
+                search_query = f"(from%3A{username})%20filter%3Aquote%20until%3A{end_date_str}%20since%3A{start_date_str}"
+                target_url = f"{base_url}/search?q={search_query}&src=typed_query&f=live"
+
+            if target_url:
+                driver.get(target_url)
+                # Wait for main content area to load
+                WebDriverWait(driver, 25).until( # Increased wait for page load
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "main[role='main'], div[data-testid='primaryColumn']")),
+                    message=f"Failed to load content for {item_type} page: {target_url}"
+                )
+                time.sleep(3) # Increased pause for dynamic content, especially after search/navigation
+            else:
+                messagebox.showerror("Internal Error", f"Unknown item_type for URL: {item_type}")
+                raise ValueError(f"Unknown item_type for URL: {item_type}") # Stop execution
+
+            # --- Item Deletion Loop ---
             last_height = driver.execute_script("return document.body.scrollHeight")
-            items_deleted_count = 0
-            items_failed_count = 0
-            
             while True:
-                # Find tweet/item elements. This selector is common for tweets.
-                # For likes, the article might still be the container.
+                self.status_label.config(text=f"Scanning for {item_type.lower()}... Deleted: {items_deleted_count}, Failed: {items_failed_count}")
+                self.root.update_idletasks()
+
                 articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
-                if not articles:
-                    # Potentially no more items or page structure changed
-                    # Check for "Try again" or "Retry" button if content fails to load
+                if not articles: # If no articles, try a page retry button if present
                     retry_buttons = driver.find_elements(By.XPATH, "//span[contains(text(), 'Try again')]|//span[contains(text(), 'Retry')]")
-                    if retry_buttons:
+                    if retry_buttons and retry_buttons[0].is_displayed():
                         try:
-                            retry_buttons[0].click()
-                            time.sleep(3)
-                            articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']") # try finding articles again
-                        except:
-                            pass # if click fails or no articles after retry, will proceed to scroll or break
+                            self.status_label.config(text="No items visible, clicking page retry button..."); self.root.update_idletasks()
+                            driver.execute_script("arguments[0].click();", retry_buttons[0])
+                            time.sleep(3.5); articles = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+                        except Exception as retry_ex: print(f"Error clicking retry: {retry_ex}")
 
                 page_processed_items_this_scroll = 0
-
-                for article in articles:
+                for article_idx, article in enumerate(articles):
                     try:
-                        # Get post date
-                        date_elem = article.find_element(By.CSS_SELECTOR, "time")
+                        date_elem = WebDriverWait(article, 7).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "time")),
+                            message=f"Time element not found in article {article_idx + 1}"
+                        )
                         post_date_str = date_elem.get_attribute("datetime")
-                        post_date = parse(post_date_str) # Use the original parsed date for comparison
+                        if not post_date_str: print(f"Article {article_idx+1} missing datetime. Skipping."); continue
+                        post_date = parse(post_date_str)
 
-                        if not (start_date <= post_date.replace(tzinfo=None) <= end_date.replace(tzinfo=None)):
+                        if not (start_date_obj <= post_date.replace(tzinfo=None) <= end_date_obj):
                             continue
-
-                        page_processed_items_this_scroll +=1
+                        page_processed_items_this_scroll += 1
 
                         if item_type == "Likes":
-                            # Unlike action
-                            unlike_button = article.find_element(By.CSS_SELECTOR, "button[data-testid='unlike']")
-                            driver.execute_script("arguments[0].click();", unlike_button) # JS click
-                            time.sleep(1) # Short pause for action to register
-                            items_deleted_count += 1
-                            self.status.config(text=f"Unliked {items_deleted_count} items")
-                        else: # Handles Posts, Replies, Quotes (as they are types of posts)
-                            # Verify user ID - important for replies and quotes from search
-                            # For main profile posts, this might not be strictly necessary but good for consistency
-                            user_link_css = f"a[href='/{username.lower()}']" # X.com URLs are case-insensitive for usernames typically
-                            user_elements = article.find_elements(By.CSS_SELECTOR, user_link_css)
+                            unlike_btn = WebDriverWait(article, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='unlike']")), "Unlike button error.")
+                            driver.execute_script("arguments[0].click();", unlike_btn); time.sleep(0.7)
+                            items_deleted_count += 1; self.status_label.config(text=f"Unliked {items_deleted_count} items")
+                        else: # Posts, Replies, Quotes
+                            if item_type == "Quotes": # Verify authorship for Quotes from search
+                                is_own_quote = False
+                                try { # More robust check for user's own quote
+                                    author_links = article.find_elements(By.XPATH, f".//div[@data-testid='User-Name']//a[@href='/{username.lower()}' and .//span[contains(text(), '@{username.lower()}')]]")
+                                    if any(link.is_displayed() for link in author_links): is_own_quote = True
+                                } except Exception as q_auth_ex: print(f"Quote author check error: {q_auth_ex}")
+                                if not is_own_quote: continue # Skip if not confirmed user's quote
 
-                            # Check if the tweet is by the target user.
-                            # This is crucial for search results (quotes) and reply pages.
-                            is_own_tweet = False
-                            for el in user_elements:
-                                # Check if the element is part of the tweet's author section, not a mention.
-                                # This can be tricky. A common pattern is that the author link is within a div with data-testid="User-Name"
-                                try:
-                                    # Traverse up to find a specific parent that indicates it's the author link
-                                    parent_div = el.find_element(By.XPATH, "./ancestor::div[@data-testid='User-Name']")
-                                    if parent_div:
-                                        is_own_tweet = True
-                                        break
-                                except: # NoSuchElementException
-                                     # If not found via specific parent, check if it's the first link with username in the article
-                                     # This is a fallback and might not always be accurate.
-                                    if el.get_attribute("tabindex") == "0": # Author link often has tabindex="0"
-                                        is_own_tweet = True
-                                        break
+                            menu_btn = WebDriverWait(article, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='caret']")), "Menu button error.")
+                            driver.execute_script("arguments[0].click();", menu_btn)
 
-                            if not is_own_tweet and item_type != "Likes": # For likes, we don't care who posted it.
-                                # If we are on the user's own profile (Posts/Replies), this check might be redundant
-                                # but for Quotes (search results), it's important.
-                                # Let's refine this: only skip if it's quotes and not by the user.
-                                if item_type == "Quotes":
-                                     # Check if the displayed username in the tweet matches.
-                                    screen_name_elements = article.find_elements(By.CSS_SELECTOR, "div[data-testid='User-Name'] span[id^='id__']")
-                                    tweet_author_found = False
-                                    for sn_elem in screen_name_elements:
-                                        if sn_elem.text.strip().lower() == f"@{username.lower()}":
-                                            tweet_author_found = True
-                                            break
-                                    if not tweet_author_found:
-                                        continue # Skip this quote as it's not by the target user
+                            del_opt_xpath = "//div[@role='menuitem' and (.//span[contains(text(),'Delete')] or .//span[contains(text(),'حذف')])]"
+                            del_opt = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, del_opt_xpath)), "Delete option error.")
+                            driver.execute_script("arguments[0].click();", del_opt)
 
-
-                            # Click three dots (caret button)
-                            menu_button = article.find_element(By.CSS_SELECTOR, "button[data-testid='caret']")
-                            driver.execute_script("arguments[0].click();", menu_button)
-                            time.sleep(1)
-
-                            # Click delete option from dropdown menu
-                            # The delete option is usually the first item in the menu for own posts
-                            # Attempt to find by text first, then fall back to position
-                            try:
-                                # Try to find the delete menu item by its text content or a more specific testid
-                                # This example assumes English "Delete" text. This should be internationalized or made more robust.
-                                delete_option = driver.find_element(By.XPATH, "//div[@role='menuitem' and (.//span[text()='Delete'] or .//span[contains(text(),'Delete Post')])]")
-                            except: # Fallback to first item if specific text not found
-                                delete_option = driver.find_element(By.XPATH, "//div[@role='menuitem'][1]")
-
-                            driver.execute_script("arguments[0].click();", delete_option)
-                            time.sleep(1)
-
-                            # Confirm deletion
-                            confirm_button = driver.find_element(By.CSS_SELECTOR, "button[data-testid='confirmationSheetConfirm']")
-                            driver.execute_script("arguments[0].click();", confirm_button)
-                            time.sleep(2) # Wait for deletion to process
-
-                            items_deleted_count += 1
-                            self.status.config(text=f"Deleted {items_deleted_count} {item_type.lower()}")
+                            conf_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='confirmationSheetConfirm']")), "Confirm button error.")
+                            driver.execute_script("arguments[0].click();", conf_btn); time.sleep(1.8)
+                            items_deleted_count += 1; self.status_label.config(text=f"Deleted {items_deleted_count} {item_type.lower()}")
                         
-                        self.root.update()
+                        self.root.update_idletasks()
                     except Exception as post_ex:
                         items_failed_count += 1
-                        print(f"Could not process an item: {post_ex}") # Log to console for debugging
-                        self.status.config(text=f"Processed: {items_deleted_count}, Failed: {items_failed_count}. Error with one item.")
-                        self.root.update()
-                        continue # Move to next post/article
+                        print(f"Could not process item {article_idx + 1}: {post_ex}")
+                        self.status_label.config(text=f"Deleted: {items_deleted_count}, Failed: {items_failed_count}. Item error.")
+                        self.root.update_idletasks()
+                        # Consider driver.send_keys(Keys.ESCAPE) to close potential popups/menus
+                        continue
                 
-                # Scroll down
+                # --- Scroll and Check End Conditions ---
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(3) # Increased wait after scroll for content to load
+                time.sleep(3) # Wait for new content loading
                 new_height = driver.execute_script("return document.body.scrollHeight")
                 
-                # Break condition: if no new items were processed on this page after scroll, and height hasn't changed.
-                # This helps if the page dynamically loads but finds no more relevant items.
-                if new_height == last_height and page_processed_items_this_scroll == 0:
-                    # Check if we are at the end of the page content for likes (often shows "You don't have any likes yet" or similar)
-                    if item_type == "Likes":
-                        end_of_likes_msgs = ["You don't have any likes yet", "No likes yet"]
-                        page_text = driver.find_element(By.TAG_NAME, 'body').text
-                        if any(msg in page_text for msg in end_of_likes_msgs):
-                            break
-                    # For other types, if height is same and no items processed, likely end.
-                    elif item_type != "Likes": # For posts, replies, quotes
-                        # More robust end-of-scroll check: if no new articles are loaded after some scrolls
-                        # This is tricky. The current 'new_height == last_height' is a common way.
-                        # If 'articles' list was empty before scroll and still empty after, and height is same.
-                        pass # The outer loop condition (new_height == last_height) will handle this.
-
-
-                if new_height == last_height:
-                    # If scroll height hasn't changed, try one more check for content.
-                    # Sometimes content loads slightly after scroll height stabilizes.
-                    time.sleep(2)
-                    articles_after_wait = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
-                    if not articles_after_wait and page_processed_items_this_scroll == 0 :
-                         # If still no articles and no items processed, then break
-                        no_more_content_texts = ["You're all caught up", "No more Tweets to show", "No results for"]
-                        body_text = driver.find_element(By.TAG_NAME, 'body').text
-                        if any(text in body_text for text in no_more_content_texts):
-                            break
-                        # For quotes search, if "No results for..." appears.
-                        if item_type == "Quotes" and "No results for" in body_text:
-                            break
-
-                    if new_height == driver.execute_script("return document.body.scrollHeight") and page_processed_items_this_scroll == 0 and not articles_after_wait:
-                        break # Break if height is truly stable and no new items found
-
+                if new_height == last_height: # Height unchanged
+                    if page_processed_items_this_scroll == 0: # And no items processed in this view
+                        time.sleep(2.5) # Final wait for any very late content
+                        articles_after_wait = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
+                        page_text_lower = driver.find_element(By.TAG_NAME, 'body').text.lower()
+                        end_phrases = ["you're all caught up", "no more tweets", "no results for", "no likes yet", "you don't have any likes yet"]
+                        if any(phrase in page_text_lower for phrase in end_phrases) or not articles_after_wait:
+                            self.status_label.config(text=f"End of content detected for {item_type.lower()}."); break
+                    # If items were processed, continue even if height is same (dynamic loading might not change total height)
                 last_height = new_height
             
-            if driver:
-                driver.quit()
-            self.progress.stop()
+            # --- Process Finished ---
+            self.status_label.config(text=f"Deletion process completed for {item_type.lower()}.")
+        except ValueError as ve: # Specific error for known issues like bad item_type
+            messagebox.showerror("Configuration Error", str(ve))
+            self.status_label.config(text="Configuration error.")
+        except Exception as e: # Catch-all for Selenium or other unexpected errors
+            print(f"An unhandled error occurred in deletion process: {e}")
+            messagebox.showerror("Critical Error", f"An critical error occurred: {str(e)}")
+            self.status_label.config(text="Critical error during deletion!")
+        finally: # Ensure cleanup and GUI reset
+            if driver: driver.quit()
+            self.progress_bar.stop()
             self.delete_button.config(state='normal')
-            final_status_message = f"Finished! Processed: {items_deleted_count} {item_type.lower()}."
-            if items_failed_count > 0:
-                final_status_message += f" Failed to process: {items_failed_count}."
-            self.status.config(text=final_status_message)
-            messagebox.showinfo("Success", final_status_message)
-            
-        except Exception as e:
-            if driver: # Ensure driver is quit even if an error occurs mid-process
-                driver.quit()
-            self.progress.stop()
-            self.delete_button.config(state='normal')
-            error_message = f"An error occurred: {str(e)}"
-            if items_failed_count > 0:
-                error_message += f" Additionally, {items_failed_count} item(s) could not be processed before this error."
-            self.status.config(text="Error occurred!") # Keep GUI status brief
-            messagebox.showerror("Error", error_message)
+            final_msg = f"Finished! Deleted: {items_deleted_count} {item_type.lower()}."
+            if items_failed_count > 0: final_msg += f" Failed: {items_failed_count}."
+            self.status_label.config(text=final_msg)
+            if items_deleted_count > 0 or items_failed_count > 0 : # Only show final popup if actions were attempted
+                 messagebox.showinfo("Process Finished", final_msg)
+            elif not 've' in locals() and not 'e' in locals(): # No errors and no items processed implies nothing to do
+                 messagebox.showinfo("Process Finished", f"No {item_type.lower()} found in the specified date range.")
+
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = XReplyDeleter(root)
-    root.mainloop()
+    # --- Main Application Setup ---
+    root = tk.Tk()  # Create the main Tkinter window
+    app = XReplyDeleter(root)  # Instantiate the application class
+    root.mainloop()  # Start the Tkinter event loop to display GUI and handle events
