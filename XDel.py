@@ -277,10 +277,10 @@ class XReplyDeleter:
                         else: # Posts, Replies, Quotes
                             if item_type == "Quotes": # Verify authorship for Quotes from search
                                 is_own_quote = False
-                                try { # More robust check for user's own quote
+                                try: # More robust check for user's own quote
                                     author_links = article.find_elements(By.XPATH, f".//div[@data-testid='User-Name']//a[@href='/{username.lower()}' and .//span[contains(text(), '@{username.lower()}')]]")
                                     if any(link.is_displayed() for link in author_links): is_own_quote = True
-                                } except Exception as q_auth_ex: print(f"Quote author check error: {q_auth_ex}")
+                                except Exception as q_auth_ex: print(f"Quote author check error: {q_auth_ex}")
                                 if not is_own_quote: continue # Skip if not confirmed user's quote
 
                             menu_btn = WebDriverWait(article, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='caret']")), "Menu button error.")
