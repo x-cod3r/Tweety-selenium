@@ -4,7 +4,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+# from webdriver_manager.chrome import ChromeDriverManager # No longer needed
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
@@ -15,24 +15,24 @@ import threading
 import logging
 import os
 
-# Get current script directory
-base_dir = os.path.dirname(os.path.abspath(__file__))
+# # Get current script directory
+# base_dir = os.path.dirname(os.path.abspath(__file__)) # Now defined within setup_driver
 
-# Paths to Chrome binary and chromedriver
-chrome_path = os.path.join(base_dir, "chrome-win64", "chrome.exe")
-driver_path = os.path.join(base_dir, "chromedriver.exe")
+# # Paths to Chrome binary and chromedriver
+# chrome_path = os.path.join(base_dir, "chrome-win64", "chrome.exe") # Now defined within setup_driver
+# driver_path = os.path.join(base_dir, "chromedriver.exe") # Now defined within setup_driver
 
-# Set Chrome binary location
-options = Options()
-options.binary_location = chrome_path
+# # Set Chrome binary location
+# # options = Options() # Options are now local to setup_driver
+# # options.binary_location = chrome_path
 
-# Optional: Run in headless or disable GPU
-# options.add_argument("--headless")
-# options.add_argument("--disable-gpu")
+# # Optional: Run in headless or disable GPU
+# # options.add_argument("--headless")
+# # options.add_argument("--disable-gpu")
 
-# Create driver using Service + Options
-service = Service(executable_path=driver_path)
-driver = webdriver.Chrome(service=service, options=options)
+# # Create driver using Service + Options
+# # service = Service(executable_path=driver_path) # Service is now local to setup_driver
+# # driver = webdriver.Chrome(service=service, options=options) # This global driver is removed
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -242,8 +242,26 @@ class XItemDeleter:
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
+
+        # Use local ChromeDriver and Chrome binary
+        # Get current script directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        driver_path = os.path.join(base_dir, "chromedriver.exe")
+        chrome_path = os.path.join(base_dir, "chrome-win64", "chrome.exe")
+
+        if not os.path.exists(driver_path):
+            self.log_message(f"Error: chromedriver.exe not found at {driver_path}")
+            self.update_status("Error: chromedriver.exe not found")
+            raise FileNotFoundError(f"chromedriver.exe not found at {driver_path}")
         
-        service = Service(ChromeDriverManager().install())
+        if not os.path.exists(chrome_path):
+            self.log_message(f"Warning: Chrome binary not found at {chrome_path}. Selenium will try to use system Chrome.")
+        else:
+            options.binary_location = chrome_path
+            self.log_message(f"Using Chrome binary from: {chrome_path}")
+
+        self.log_message(f"Using ChromeDriver from: {driver_path}")
+        service = Service(executable_path=driver_path)
         driver = webdriver.Chrome(service=service, options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
