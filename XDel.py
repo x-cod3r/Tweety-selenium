@@ -442,28 +442,98 @@ class XItemDeleter:
                 return True
             else:
                 # For posts, replies, and quotes - use delete menu
-                if item_type == "Quotes":
+                menu_button_found_and_clicked = False
+
+                if item_type == "Replies":
+                    self.log_message(f"Attempting to delete a reply. Verifying ownership by @{username}...")
+                    # Replies need special handling to ensure we're deleting the user's own reply,
+                    # especially when it's part of a thread displayed in a single <article>.
+
+                    # Find all potential tweet/reply content cells within the article.
+                    # These often have 'cellInnerDiv' or similar structure.
+                    # We look for a cell that contains a link to the user's profile.
+                    potential_reply_cells = article.find_elements(By.XPATH, ".//div[div//a[@href='/" + username + "']]")
+                    if not potential_reply_cells: # Fallback to a broader cell search if specific link isn't found at this stage
+                        potential_reply_cells = article.find_elements(By.XPATH, ".//div[@data-testid='cellInnerDiv']")
+
+                    found_user_reply_cell = None
+                    for cell in potential_reply_cells:
+                        try
+                            # Check if this cell directly contains the user's profile link and is visible.
+                            # This helps ensure it's the user's actual reply content.
+                            user_link = cell.find_element(By.XPATH, f".//a[@href='/{username}' and @role='link'][.//span[contains(text(), '@{username}')]]")
+                            if user_link.is_displayed():
+                                # Check if this cell also contains a time element, typical for actual tweets/replies
+                                if cell.find_elements(By.CSS_SELECTOR, "time"):
+                                    found_user_reply_cell = cell
+                                    self.log_message(f"Identified a reply cell by @{username}.")
+                                    break
+                        except NoSuchElementException:
+                            continue
+
+                    if found_user_reply_cell:
+                        # Search for the caret button within this specific user's reply cell
+                        try:
+                            self.log_message("Looking for menu button in user's reply cell...")
+                            menu_button = self.wait_for_element_clickable(found_user_reply_cell, "button[data-testid='caret']", 5)
+                            self.scroll_element_into_view(menu_button)
+                            self.log_message("Clicking menu button for user's reply...")
+                            self.driver.execute_script("arguments[0].click();", menu_button)
+                            time.sleep(1)
+                            menu_button_found_and_clicked = True
+                        except TimeoutException:
+                            self.log_message("Could not find menu button in the identified user's reply cell.")
+                        except Exception as e_cell:
+                            self.log_message(f"Error clicking menu button in user's reply cell: {e_cell}")
+                    else:
+                        self.log_message(f"Could not definitively identify a specific reply cell by @{username} within this article. Skipping for safety.")
+                        return False # Important: if we can't be sure, don't delete.
+
+                elif item_type == "Quotes":
                     # Verify it's user's own quote
                     try:
-                        author_links = article.find_elements(By.XPATH, f".//a[contains(@href, '/{username}')]")
+                        # Check for user's name/link in the quoting part of the tweet
+                        quote_author_xpath = f".//div[@data-testid='tweetText']//a[@href='/{username}'] | .//a[contains(@href, '/{username}/status')]//span[contains(text(),'{username}')]"
+                        author_links = article.find_elements(By.XPATH, quote_author_xpath)
+
                         if not any(link.is_displayed() for link in author_links):
-                            return False  # Not user's own quote
+                             self.log_message(f"This quote does not appear to be by @{username}. Skipping.")
+                             return False
                     except NoSuchElementException:
+                        self.log_message(f"Could not verify quote author for @{username}. Skipping.")
                         return False
+
+                    # If verified, proceed to click the general caret button for the article
+                    self.log_message("Looking for menu button for user's quote...")
+                    menu_button = self.wait_for_element_clickable(article, "button[data-testid='caret']", 8)
+                    self.scroll_element_into_view(menu_button)
+                    self.log_message("Clicking menu button for user's quote...")
+                    self.driver.execute_script("arguments[0].click();", menu_button)
+                    time.sleep(1)
+                    menu_button_found_and_clicked = True
                 
-                # Find and click menu button (three dots)
-                self.log_message("Looking for menu button...")
-                menu_button = self.wait_for_element_clickable(article, "button[data-testid='caret']", 8)
-                
-                # Ensure menu button is properly in view
-                self.scroll_element_into_view(menu_button)
-                
-                # Click menu button
-                self.log_message("Clicking menu button...")
-                self.driver.execute_script("arguments[0].click();", menu_button)
-                time.sleep(1)
-                
-                # Click delete option - try multiple selectors
+                else: # For "Posts" or other types not "Likes" or "Replies" or "Quotes"
+                    # This is the original behavior for items like user's own main posts.
+                    self.log_message("Looking for menu button (general)...")
+                    menu_button = self.wait_for_element_clickable(article, "button[data-testid='caret']", 8)
+                    self.scroll_element_into_view(menu_button)
+                    self.log_message("Clicking menu button (general)...")
+                    self.driver.execute_script("arguments[0].click();", menu_button)
+                    time.sleep(1)
+                    menu_button_found_and_clicked = True
+
+                if not menu_button_found_and_clicked:
+                    self.log_message("Menu button not clicked. Cannot proceed with deletion for this item.")
+                    # Attempt to close any unintentionally opened menu if possible
+                    try:
+                        body_element = self.driver.find_element(By.TAG_NAME, 'body')
+                        body_element.click() # Clicking body might close an open menu
+                        time.sleep(0.5)
+                    except: # nosec
+                        pass
+                    return False
+
+                # Common deletion steps (delete option, confirm button)
                 self.log_message("Looking for delete option...")
                 delete_selectors = [
                     "//div[@role='menuitem']//span[contains(text(), 'Delete')]",
