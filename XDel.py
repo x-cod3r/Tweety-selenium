@@ -7,6 +7,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime
 import time
 from dateutil.parser import parse
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 class XReplyDeleter:
     def __init__(self, root):
@@ -18,14 +20,17 @@ class XReplyDeleter:
         tk.Label(root, text="X Username:").pack(pady=5)
         self.username_entry = tk.Entry(root)
         self.username_entry.pack(pady=5)
+        self.username_entry.insert(0, "Abouu_sz")  # Set default username
         
         tk.Label(root, text="Start Date (YYYY-MM-DD):").pack(pady=5)
         self.start_date = tk.Entry(root)
         self.start_date.pack(pady=5)
+        self.start_date.insert(0, "2026-01-01")  # Set default start date
         
         tk.Label(root, text="End Date (YYYY-MM-DD):").pack(pady=5)
         self.end_date = tk.Entry(root)
         self.end_date.pack(pady=5)
+        self.end_date.insert(0, "2026-06-20")  # Set default end date
 
         tk.Label(root, text="Item to Delete:").pack(pady=5)
         self.item_type_var = tk.StringVar()
@@ -71,6 +76,53 @@ class XReplyDeleter:
         # Pass string dates for URL construction if needed, and parsed dates for comparison
         self.delete_items(username, start, end, item_type, start_date_str, end_date_str)
         
+    def login_to_x(self, driver, username, password):
+        # Wait for login page to load
+        time.sleep(2)
+        try:
+            # Find username input (X.com may use 'text' or 'email' for username field)
+            user_input = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.NAME, 'text'))
+            )
+            user_input.clear()
+            user_input.send_keys(username)
+            # Try multiple selectors for the Next button
+            next_btn = None
+            try:
+                next_btn = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, "//span[text()='Next']/ancestor::div[@role='button']"))
+                )
+            except:
+                try:
+                    # Try Arabic or other localizations
+                    next_btn = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, "//span[text()='التالي']/ancestor::div[@role='button']"))
+                    )
+                except:
+                    # Fallback: any visible button with role=button
+                    btns = driver.find_elements(By.XPATH, "//div[@role='button']")
+                    for btn in btns:
+                        if btn.is_displayed() and btn.is_enabled():
+                            next_btn = btn
+                            break
+            if not next_btn:
+                raise Exception("Next button not found on login page.")
+            next_btn.click()
+            # Wait for password input to appear after clicking Next
+            pwd_input = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.NAME, 'password'))
+            )
+            pwd_input.clear()
+            pwd_input.send_keys(password)
+            login_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//span[text()='Log in']/ancestor::div[@role='button']"))
+            )
+            login_btn.click()
+            time.sleep(5)  # Wait for login to complete
+        except Exception as e:
+            print(f"Automated login failed: {e}")
+            messagebox.showerror("Login Error", f"Automated login failed: {e}")
+
     def delete_items(self, username, start_date, end_date, item_type, start_date_str=None, end_date_str=None):
         driver = None  # Initialize driver to ensure it's available in finally block
         try:
@@ -79,7 +131,13 @@ class XReplyDeleter:
             # options.add_argument("--headless")  # Comment out for debugging, enable for release
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
             
-            # Navigate to appropriate page
+            # Always open login page first
+            driver.get("https://x.com/login")
+            time.sleep(3)
+            # Perform login
+            self.login_to_x(driver, "Abouu_sz", "Ww+1+1Ww")
+            time.sleep(5)
+            # After login, navigate to the appropriate page
             base_url = "https://x.com"
             if item_type == "Replies":
                 driver.get(f"{base_url}/{username}/with_replies")
@@ -88,40 +146,11 @@ class XReplyDeleter:
             elif item_type == "Likes":
                 driver.get(f"{base_url}/{username}/likes")
             elif item_type == "Quotes":
-                # Ensure date strings are in YYYY-MM-DD for the URL
                 s_date = start_date.strftime('%Y-%m-%d')
                 e_date = end_date.strftime('%Y-%m-%d')
                 search_query = f"(from%3A{username})%20filter%3Aquote%20until%3A{e_date}%20since%3A{s_date}"
                 driver.get(f"{base_url}/search?q={search_query}&src=typed_query&f=live")
-            
-            time.sleep(5)  # Wait for page load, increased for potentially slower pages like search
-
-            # Log in if required (manual step for now)
-            # X.com might require login to see content or perform actions.
-            # This script assumes the user is already logged in via their browser session
-            # or that the content is publicly accessible and deletable without login (less likely for delete actions).
-            # For a robust solution, Selenium would need to handle login.
-            # For now, we'll prompt the user if they seem stuck on a login page.
-            if "login" in driver.current_url.lower() or "signin" in driver.current_url.lower():
-                 # Check if we are on a login page
-                if messagebox.askyesno("Login Required", "It seems you are on a login page. Please log in to X.com in the browser window that Selenium opened, then click 'Yes' to continue. Click 'No' to abort."):
-                    # User will manually log in, then we can try to re-fetch the target page if needed
-                    # Re-attempt navigation after potential login
-                    if item_type == "Replies":
-                        driver.get(f"{base_url}/{username}/with_replies")
-                    elif item_type == "Posts":
-                        driver.get(f"{base_url}/{username}")
-                    elif item_type == "Likes":
-                        driver.get(f"{base_url}/{username}/likes")
-                    elif item_type == "Quotes":
-                        s_date = start_date.strftime('%Y-%m-%d')
-                        e_date = end_date.strftime('%Y-%m-%d')
-                        search_query = f"(from%3A{username})%20filter%3Aquote%20until%3A{e_date}%20since%3A{s_date}"
-                        driver.get(f"{base_url}/search?q={search_query}&src=typed_query&f=live")
-                    time.sleep(5) # Wait again
-                else:
-                    raise Exception("Login required by user, aborted.")
-
+            time.sleep(5)
 
             last_height = driver.execute_script("return document.body.scrollHeight")
             items_deleted_count = 0
@@ -233,10 +262,10 @@ class XReplyDeleter:
                         
                         self.root.update()
                     except Exception as post_ex:
-                         items_failed_count += 1
+                        items_failed_count += 1
                         print(f"Could not process an item: {post_ex}") # Log to console for debugging
-                         self.status.config(text=f"Processed: {items_deleted_count}, Failed: {items_failed_count}. Error with one item.")
-                         self.root.update()
+                        self.status.config(text=f"Processed: {items_deleted_count}, Failed: {items_failed_count}. Error with one item.")
+                        self.root.update()
                         continue # Move to next post/article
                 
                 # Scroll down
@@ -268,7 +297,7 @@ class XReplyDeleter:
                     articles_after_wait = driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
                     if not articles_after_wait and page_processed_items_this_scroll == 0 :
                          # If still no articles and no items processed, then break
-                        no_more_content_texts = ["You’re all caught up", "No more Tweets to show", "No results for"]
+                        no_more_content_texts = ["You're all caught up", "No more Tweets to show", "No results for"]
                         body_text = driver.find_element(By.TAG_NAME, 'body').text
                         if any(text in body_text for text in no_more_content_texts):
                             break
