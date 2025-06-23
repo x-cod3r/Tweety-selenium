@@ -117,10 +117,23 @@ class XItemDeleter:
             bg='#1DA1F2',
             fg='white',
             font=('Arial', 10, 'bold'),
-            padx=20,
+            padx=10, # Reduced padding to make space
             pady=5
         )
-        self.delete_button.pack(pady=5)
+        self.delete_button.pack(side=tk.LEFT, padx=(0, 5), pady=5) # Pack to left
+
+        self.stop_button = tk.Button(
+            button_frame,
+            text="Stop",
+            command=self.stop_deletion, # To be implemented
+            bg='#E0245E', # A contrasting color for stop
+            fg='white',
+            font=('Arial', 10, 'bold'),
+            padx=10, # Reduced padding
+            pady=5,
+            state='disabled' # Initially disabled
+        )
+        self.stop_button.pack(side=tk.LEFT, padx=(5, 0), pady=5) # Pack to left of delete
         
         # Status and progress
         self.status_label = tk.Label(main_frame, text="Status: Ready", font=('Arial', 9))
@@ -142,6 +155,16 @@ class XItemDeleter:
         # Initialize state
         self.is_running = False
         self.driver = None
+
+    def stop_deletion(self):
+        """Signal the deletion process to stop."""
+        if self.is_running:
+            self.log_message("Stop request received. Finishing current operations gracefully...")
+            self.update_status("Stopping...")
+            self.is_running = False # Signal loops to terminate
+            self.stop_button.config(state='disabled') # Disable stop button to prevent multiple clicks
+        else:
+            self.log_message("Stop requested, but no process is currently running.")
 
     def log_message(self, message):
         """Add message to results text area"""
@@ -727,6 +750,7 @@ class XItemDeleter:
             # Set running state
             self.is_running = True
             self.delete_button.config(state='disabled', text='Running...')
+            self.stop_button.config(state='normal') # Enable Stop button
             self.progress_bar.start()
             
             # Clear results
@@ -750,15 +774,25 @@ class XItemDeleter:
             )
             
             # Show results
-            self.log_message(f"Process completed!")
+            final_status_message = "Process completed!"
+            final_ui_status = "Completed"
+
+            # Check if the process was stopped prematurely by the user
+            # self.is_running will be false here anyway if stop_deletion was called.
+            # A more reliable check is the status label text set by stop_deletion.
+            if "Stopping..." in self.status_label.cget("text") or "Stopped by user" in self.status_label.cget("text"):
+                final_status_message = "Process stopped by user."
+                final_ui_status = "Stopped by user"
+
+            self.log_message(final_status_message)
             self.log_message(f"Total processed: {processed_count}")
             self.log_message(f"Successfully deleted: {deleted_count}")
             self.log_message(f"Failed: {failed_count}")
             
-            self.update_status("Completed")
+            self.update_status(final_ui_status) # This will be handled by finally too, but good to be explicit
             
             messagebox.showinfo(
-                "Process Complete",
+                final_ui_status.capitalize(), # "Process Complete" or "Stopped by user"
                 f"Deleted {deleted_count} {item_type.lower()}\n"
                 f"Failed: {failed_count}\n"
                 f"Total processed: {processed_count}"
@@ -772,11 +806,17 @@ class XItemDeleter:
             self.log_message(f"Error: {str(e)}")
         finally:
             # Cleanup
-            self.is_running = False
+            self.is_running = False # Ensure this is set before UI updates if stop_deletion wasn't called
             self.progress_bar.stop()
             self.delete_button.config(state='normal', text='Start Deletion')
-            self.update_status("Ready")
+            self.stop_button.config(state='disabled') # Disable Stop button
             
+            # Update status only if not already set to a specific "stopped" message
+            if "Stopping..." not in self.status_label.cget("text") and "Stopped by user" not in self.status_label.cget("text"):
+                self.update_status("Ready")
+            elif "Stopping..." in self.status_label.cget("text"): # If it was stopping, now it's fully stopped.
+                self.update_status("Stopped by user")
+
             if self.driver:
                 try:
                     self.driver.quit()
