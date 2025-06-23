@@ -77,7 +77,7 @@ class XItemDeleter:
         tk.Label(main_frame, text="X Username:", font=('Arial', 10, 'bold')).pack(anchor='w', pady=(0, 5))
         self.username_entry = tk.Entry(main_frame, width=40, font=('Arial', 10))
         self.username_entry.pack(pady=(0, 10))
-        self.username_entry.insert(0, "Abouu_sz")
+        self.username_entry.insert(0, "You username here")
         
         # Date fields
         date_frame = tk.Frame(main_frame)
