@@ -458,7 +458,7 @@ class XItemDeleter:
 
                     found_user_reply_cell = None
                     for cell in potential_reply_cells:
-                        try
+                        try:
                             # Check if this cell directly contains the user's profile link and is visible.
                             # This helps ensure it's the user's actual reply content.
                             user_link = cell.find_element(By.XPATH, f".//a[@href='/{username}' and @role='link'][.//span[contains(text(), '@{username}')]]")
