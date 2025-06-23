@@ -13,6 +13,26 @@ import time
 from dateutil.parser import parse
 import threading
 import logging
+import os
+
+# Get current script directory
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Paths to Chrome binary and chromedriver
+chrome_path = os.path.join(base_dir, "chrome-win64", "chrome.exe")
+driver_path = os.path.join(base_dir, "chromedriver.exe")
+
+# Set Chrome binary location
+options = Options()
+options.binary_location = chrome_path
+
+# Optional: Run in headless or disable GPU
+# options.add_argument("--headless")
+# options.add_argument("--disable-gpu")
+
+# Create driver using Service + Options
+service = Service(executable_path=driver_path)
+driver = webdriver.Chrome(service=service, options=options)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
